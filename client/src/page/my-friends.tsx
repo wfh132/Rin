@@ -33,6 +33,7 @@ type FriendItem = {
 const DEFAULT_FRIEND_CATEGORIES = ["软件导航", "实用工具", "未分类"] as const;
 const CUSTOM_FRIEND_CATEGORIES_KEY = "rin.my-friends.categories";
 type FriendCategory = string;
+type MoveDirection = -1 | 1;
 
 function readCustomFriendCategories() {
     if (typeof window === "undefined") return [];
@@ -49,17 +50,61 @@ function readCustomFriendCategories() {
     }
 }
 
-function encodeFriendName(category: FriendCategory, name: string) {
-    const categoryPrefix = category === "未分类" ? "" : `[${encodeURIComponent(category)}]`;
-    return `[分组2]${categoryPrefix}${name}`;
+function encodeFriendName(name: string) {
+    return `[分组2]${name}`;
+}
+
+function encodeFriendDescription(category: FriendCategory, desc: string) {
+    if (category === "未分类") return desc.length <= 100 ? desc : null;
+
+    const categoryMetadata = `[[rin-category:${category.length}:${category}]]`;
+    const encodedDescription = `${categoryMetadata}${desc}`;
+    return encodedDescription.length <= 100 ? encodedDescription : null;
+}
+
+function decodeFriend(item: FriendItem) {
+    let category = "未分类";
+    let desc = item.desc ?? "";
+    const metadataMatch = /^\[\[rin-category:(\d+):/.exec(desc);
+
+    if (metadataMatch) {
+        const categoryStart = metadataMatch[0].length;
+        const categoryEnd = categoryStart + Number(metadataMatch[1]);
+        if (desc.slice(categoryEnd, categoryEnd + 2) === "]]" ) {
+            category = desc.slice(categoryStart, categoryEnd);
+            desc = desc.slice(categoryEnd + 2);
+        }
+    }
+
+    const nameWithoutGroup = item.name.replace(/^\[分组2\]/, "");
+    const legacyCategoryMatch = /^\[([^\]]+)\]/.exec(nameWithoutGroup);
+    if (category === "未分类" && legacyCategoryMatch) {
+        try {
+            category = decodeURIComponent(legacyCategoryMatch[1]);
+        } catch {
+            category = legacyCategoryMatch[1];
+        }
+    }
+
+    return {
+        ...item,
+        category,
+        desc,
+        name: legacyCategoryMatch ? nameWithoutGroup.slice(legacyCategoryMatch[0].length) : nameWithoutGroup,
+    };
 }
 
 async function publish({ name, category, avatar, desc, url, showAlert }: { name: string, category: FriendCategory, avatar: string, desc: string, url: string, showAlert: ShowAlertType }) {
     const t = i18next.t
+    const encodedDescription = encodeFriendDescription(category, desc);
+    if (name.length + "[分组2]".length > 20 || !encodedDescription) {
+        showAlert("链接名称或描述过长，请缩短后重试")
+        return
+    }
     const { error } = await client.friend.create({
         avatar,
-        name: encodeFriendName(category, name),
-        desc,
+        name: encodeFriendName(name),
+        desc: encodedDescription,
         url
     })
     if (error) {
@@ -69,6 +114,35 @@ async function publish({ name, category, avatar, desc, url, showAlert }: { name:
             window.location.reload()
         })
     }
+}
+
+async function persistFriendOrder(friends: FriendItem[], showAlert: ShowAlertType) {
+    const updates: { friend: FriendItem; desc: string; sortOrder: number }[] = []
+    for (const [index, friend] of friends.entries()) {
+        const desc = encodeFriendDescription(friend.category ?? "未分类", friend.desc ?? "")
+        if (friend.name.length + "[分组2]".length > 20 || !desc) {
+            showAlert("链接名称或描述过长，无法保存排序")
+            return
+        }
+        updates.push({ friend, desc, sortOrder: friends.length - index })
+    }
+
+    const results = await Promise.all(updates.map(({ friend, desc, sortOrder }) =>
+        client.friend.update(friend.id, {
+            name: encodeFriendName(friend.name),
+            desc,
+            avatar: friend.avatar,
+            url: friend.url,
+            sort_order: sortOrder,
+        })
+    ))
+    const failedUpdate = results.find((result) => result.error)
+    if (failedUpdate?.error) {
+        showAlert(failedUpdate.error.value as string)
+        return
+    }
+
+    window.location.reload()
 }
 
 export function MyFriendsPage() {
@@ -99,25 +173,7 @@ export function MyFriendsPage() {
             if (data) {
                 const friend_list = (data.friend_list || [])
                     .filter((item) => item.name.startsWith("[分组2]"))
-                    .map((item) => {
-                        const nameWithoutGroup = item.name.replace(/^\[分组2\]/, "")
-                        const categoryMatch = /^\[([^\]]+)\]/.exec(nameWithoutGroup)
-                        let friendCategory = "未分类"
-                        if (categoryMatch) {
-                            try {
-                                friendCategory = decodeURIComponent(categoryMatch[1])
-                            } catch {
-                                friendCategory = categoryMatch[1]
-                            }
-                        }
-                        return {
-                            ...item,
-                            category: friendCategory,
-                            name: categoryMatch
-                                ? nameWithoutGroup.slice(categoryMatch[0].length)
-                                : nameWithoutGroup,
-                        }
-                    })
+                    .map(decodeFriend)
                     setAllFriends(friend_list as FriendItem[])
                 const friends_available = friend_list.filter(({ health, accepted }: any) => health.length === 0 && accepted === 1) || []
                 setFriendsAvailable(friends_available as any)
@@ -137,6 +193,48 @@ export function MyFriendsPage() {
         ...customCategories,
         ...friendsAvailable.map((friend) => friend.category).filter((value): value is string => Boolean(value)),
     ])]
+    const orderedFriendCategories = [...friendCategories].sort((left, right) => {
+        const leftOrder = Math.max(0, ...friendsAvailable
+            .filter((friend) => friend.category === left)
+            .map((friend) => friend.sort_order ?? 0))
+        const rightOrder = Math.max(0, ...friendsAvailable
+            .filter((friend) => friend.category === right)
+            .map((friend) => friend.sort_order ?? 0))
+        return rightOrder - leftOrder
+    })
+    const visibleFriendCategories = orderedFriendCategories.filter((friendCategory) =>
+        friendsAvailable.some((friend) => friend.category === friendCategory)
+    )
+    function getSortedCategoryFriends(friendCategory: string) {
+        return [...friendsAvailable
+            .filter((friend) => friend.category === friendCategory)
+        ].sort((left, right) => (right.sort_order ?? 0) - (left.sort_order ?? 0))
+    }
+    function moveCategory(friendCategory: string, direction: -1 | 1) {
+        const index = visibleFriendCategories.indexOf(friendCategory)
+        const targetIndex = index + direction
+        if (index < 0 || targetIndex < 0 || targetIndex >= visibleFriendCategories.length) return
+
+        const nextCategories = [...visibleFriendCategories]
+        ;[nextCategories[index], nextCategories[targetIndex]] = [nextCategories[targetIndex], nextCategories[index]]
+        const orderedFriends = nextCategories.flatMap(getSortedCategoryFriends)
+        void persistFriendOrder(orderedFriends, showAlert)
+    }
+    function moveFriend(friendId: number, direction: -1 | 1) {
+        const friend = friendsAvailable.find((item) => item.id === friendId)
+        if (!friend?.category) return
+
+        const categoryFriends = getSortedCategoryFriends(friend.category)
+        const index = categoryFriends.findIndex((item) => item.id === friendId)
+        const targetIndex = index + direction
+        if (index < 0 || targetIndex < 0 || targetIndex >= categoryFriends.length) return
+
+        ;[categoryFriends[index], categoryFriends[targetIndex]] = [categoryFriends[targetIndex], categoryFriends[index]]
+        const orderedFriends = visibleFriendCategories.flatMap((friendCategory) =>
+            friendCategory === friend.category ? categoryFriends : getSortedCategoryFriends(friendCategory)
+        )
+        void persistFriendOrder(orderedFriends, showAlert)
+    }
     function addCategory() {
         const nextCategory = newCategory.trim()
         if (!nextCategory) return
@@ -175,8 +273,8 @@ export function MyFriendsPage() {
                 const results = await Promise.all(categorizedFriends.map((friend) =>
                     client.friend.update(friend.id, {
                         avatar: friend.avatar,
-                        name: encodeFriendName("未分类", friend.name),
-                        desc: friend.desc ?? "",
+                        name: encodeFriendName(friend.name),
+                        desc: encodeFriendDescription("未分类", friend.desc ?? "") ?? "",
                         url: friend.url,
                         accepted: friend.accepted,
                         sort_order: friend.sort_order ?? 0,
@@ -211,14 +309,18 @@ export function MyFriendsPage() {
         </Helmet>
         <Waiting for={friendsAvailable.length !== 0 || friendsUnavailable.length !== 0 || status === "idle"}>
             <main className="w-full flex flex-col justify-center items-center mb-8 t-primary ani-show">
-                {friendCategories.map((friendCategory) => {
-                    const categorizedFriends = friendsAvailable.filter((friend) => friend.category === friendCategory)
+                {visibleFriendCategories.map((friendCategory, index) => {
+                    const categorizedFriends = getSortedCategoryFriends(friendCategory)
                     return (
                         <FriendList
                             key={friendCategory}
                             title={friendCategory}
                             show={categorizedFriends.length > 0}
                             friends={categorizedFriends}
+                            onMoveFriend={profile?.permission ? moveFriend : undefined}
+                            onMoveCategory={profile?.permission ? (direction) => moveCategory(friendCategory, direction) : undefined}
+                            canMoveCategoryUp={index > 0}
+                            canMoveCategoryDown={index < visibleFriendCategories.length - 1}
                         />
                     )
                 })}
@@ -289,18 +391,61 @@ export function MyFriendsPage() {
     </>)
 }
 
-function FriendList({ title, show, friends }: { title: string, show: boolean, friends: FriendItem[] }) {
+function FriendList({
+    title,
+    show,
+    friends,
+    onMoveFriend,
+    onMoveCategory,
+    canMoveCategoryUp,
+    canMoveCategoryDown,
+}: {
+    title: string;
+    show: boolean;
+    friends: FriendItem[];
+    onMoveFriend?: (friendId: number, direction: MoveDirection) => void;
+    onMoveCategory?: (direction: MoveDirection) => void;
+    canMoveCategoryUp?: boolean;
+    canMoveCategoryDown?: boolean;
+}) {
     return (<>
         {
             show && <>
                 <div className="wauto text-start py-4">
-                    <p className="text-sm mt-4 text-neutral-500 font-normal">
-                        {title}
-                    </p>
+                    <div className="flex items-center gap-2">
+                        <p className="text-sm mt-4 text-neutral-500 font-normal">{title}</p>
+                        {onMoveCategory && <div className="flex items-center gap-1">
+                            <button
+                                type="button"
+                                aria-label="上移分类"
+                                title="上移分类"
+                                disabled={!canMoveCategoryUp}
+                                onClick={() => onMoveCategory(-1)}
+                                className="p-1 text-neutral-500 hover:text-theme disabled:opacity-30"
+                            >
+                                <i className="ri-arrow-up-s-line" aria-hidden="true" />
+                            </button>
+                            <button
+                                type="button"
+                                aria-label="下移分类"
+                                title="下移分类"
+                                disabled={!canMoveCategoryDown}
+                                onClick={() => onMoveCategory(1)}
+                                className="p-1 text-neutral-500 hover:text-theme disabled:opacity-30"
+                            >
+                                <i className="ri-arrow-down-s-line" aria-hidden="true" />
+                            </button>
+                        </div>}
+                    </div>
                 </div>
                 <div className="wauto grid grid-cols-2 sm:grid-cols-3 md:grid-cols-4 gap-4">
                     {friends.map((friend) => (
-                        <Friend key={friend.id} friend={friend} />
+                        <Friend
+                            key={friend.id}
+                            friend={friend}
+                            onMoveUp={onMoveFriend ? () => onMoveFriend(friend.id, -1) : undefined}
+                            onMoveDown={onMoveFriend ? () => onMoveFriend(friend.id, 1) : undefined}
+                        />
                     ))}
                 </div>
             </>
@@ -308,7 +453,15 @@ function FriendList({ title, show, friends }: { title: string, show: boolean, fr
     </>)
 }
 
-function Friend({ friend }: { friend: FriendItem }) {
+function Friend({
+    friend,
+    onMoveUp,
+    onMoveDown,
+}: {
+    friend: FriendItem;
+    onMoveUp?: () => void;
+    onMoveDown?: () => void;
+}) {
     const { t } = useTranslation()
     const profile = useContext(ProfileContext)
     const [avatar, setAvatar] = useState(friend.avatar)
@@ -345,10 +498,16 @@ function Friend({ friend }: { friend: FriendItem }) {
     }, [friend.id])
 
     const updateFriend = useCallback(() => {
+        const encodedDescription = encodeFriendDescription(category, desc)
+        if (name.length + "[分组2]".length > 20 || !encodedDescription) {
+            showAlert("链接名称或描述过长，请缩短后重试")
+            return
+        }
+
         client.friend.update(friend.id, {
             avatar,
-            name: encodeFriendName(category, name),
-            desc,
+            name: encodeFriendName(name),
+            desc: encodedDescription,
             url,
             accepted: status,
             sort_order: sortOrder
@@ -400,6 +559,29 @@ function Friend({ friend }: { friend: FriendItem }) {
                         src={friend.avatar}
                         alt={friend.name}
                     />
+                    {(onMoveUp || onMoveDown) && <div className="mt-3 flex items-center justify-end gap-2">
+                        <span className="text-sm text-neutral-500">链接顺序</span>
+                        <button
+                            type="button"
+                            aria-label="上移链接"
+                            title="上移链接"
+                            disabled={!onMoveUp}
+                            onClick={onMoveUp}
+                            className="p-2 text-neutral-500 hover:text-theme disabled:opacity-30"
+                        >
+                            <i className="ri-arrow-up-s-line" aria-hidden="true" />
+                        </button>
+                        <button
+                            type="button"
+                            aria-label="下移链接"
+                            title="下移链接"
+                            disabled={!onMoveDown}
+                            onClick={onMoveDown}
+                            className="p-2 text-neutral-500 hover:text-theme disabled:opacity-30"
+                        >
+                            <i className="ri-arrow-down-s-line" aria-hidden="true" />
+                        </button>
+                    </div>}
                     {profile?.permission &&
                         <div className="flex flex-col w-full items-start mt-4 px-4">
                             <SearchableSelect
