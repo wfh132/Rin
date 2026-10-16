@@ -21,13 +21,13 @@ type FriendItem = {
     id: number;
     uid: number;
     avatar: string;
-    createdAt: Date;
-    updatedAt: Date;
+    createdAt: string;
+    updatedAt: string;
     desc: string | null;
     url: string;
     accepted: number;
     health: string;
-    sort_order?: number;
+    sort_order?: number | null;
 };
 
 const DEFAULT_FRIEND_CATEGORIES = ["软件导航", "实用工具", "未分类"] as const;
