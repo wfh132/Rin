@@ -30,11 +30,27 @@ type FriendItem = {
     sort_order?: number;
 };
 
-const FRIEND_CATEGORIES = ["软件导航", "实用工具", "未分类"] as const;
-type FriendCategory = typeof FRIEND_CATEGORIES[number];
+const DEFAULT_FRIEND_CATEGORIES = ["软件导航", "实用工具", "未分类"] as const;
+const CUSTOM_FRIEND_CATEGORIES_KEY = "rin.my-friends.categories";
+type FriendCategory = string;
+
+function readCustomFriendCategories() {
+    if (typeof window === "undefined") return [];
+
+    try {
+        const categories: unknown = JSON.parse(localStorage.getItem(CUSTOM_FRIEND_CATEGORIES_KEY) ?? "[]");
+        return Array.isArray(categories)
+            ? categories.filter((category): category is string =>
+                typeof category === "string" && category.trim().length > 0
+            )
+            : [];
+    } catch {
+        return [];
+    }
+}
 
 function encodeFriendName(category: FriendCategory, name: string) {
-    const categoryPrefix = category === "未分类" ? "" : `[${category}]`;
+    const categoryPrefix = category === "未分类" ? "" : `[${encodeURIComponent(category)}]`;
     return `[分组2]${categoryPrefix}${name}`;
 }
 
@@ -62,6 +78,8 @@ export function MyFriendsPage() {
     let [apply] = useState<FriendItem>()
     const [name, setName] = useState("")
     const [category, setCategory] = useState<FriendCategory>("软件导航")
+    const [customCategories, setCustomCategories] = useState<string[]>(readCustomFriendCategories)
+    const [newCategory, setNewCategory] = useState("")
     const [desc, setDesc] = useState("")
     const [avatar, setAvatar] = useState("")
     const [url, setUrl] = useState("")
@@ -81,15 +99,20 @@ export function MyFriendsPage() {
                     .filter((item) => item.name.startsWith("[分组2]"))
                     .map((item) => {
                         const nameWithoutGroup = item.name.replace(/^\[分组2\]/, "")
-                        const category = FRIEND_CATEGORIES.find((friendCategory) =>
-                            nameWithoutGroup.startsWith(`[${friendCategory}]`)
-                        )
-                        const categoryPrefix = category ? `[${category}]` : ""
+                        const categoryMatch = /^\[([^\]]+)\]/.exec(nameWithoutGroup)
+                        let friendCategory = "未分类"
+                        if (categoryMatch) {
+                            try {
+                                friendCategory = decodeURIComponent(categoryMatch[1])
+                            } catch {
+                                friendCategory = categoryMatch[1]
+                            }
+                        }
                         return {
                             ...item,
-                            category: category ?? "未分类",
-                            name: categoryPrefix
-                                ? nameWithoutGroup.slice(categoryPrefix.length)
+                            category: friendCategory,
+                            name: categoryMatch
+                                ? nameWithoutGroup.slice(categoryMatch[0].length)
                                 : nameWithoutGroup,
                         }
                     })
@@ -106,6 +129,26 @@ export function MyFriendsPage() {
         })
         ref.current = true
     }, [])
+    const friendCategories = [...new Set([
+        ...DEFAULT_FRIEND_CATEGORIES,
+        ...customCategories,
+        ...friendsAvailable.map((friend) => friend.category).filter((value): value is string => Boolean(value)),
+    ])]
+    function addCategory() {
+        const nextCategory = newCategory.trim()
+        if (!nextCategory) return
+
+        if (!friendCategories.includes(nextCategory)) {
+            const nextCategories = [...customCategories, nextCategory]
+            setCustomCategories(nextCategories)
+            try {
+                localStorage.setItem(CUSTOM_FRIEND_CATEGORIES_KEY, JSON.stringify(nextCategories))
+            } catch {}
+        }
+
+        setCategory(nextCategory)
+        setNewCategory("")
+    }
     function publishButton() {
         publish({ name, category, desc, avatar, url, showAlert })
     }
@@ -120,7 +163,7 @@ export function MyFriendsPage() {
         </Helmet>
         <Waiting for={friendsAvailable.length !== 0 || friendsUnavailable.length !== 0 || status === "idle"}>
             <main className="w-full flex flex-col justify-center items-center mb-8 t-primary ani-show">
-                {FRIEND_CATEGORIES.map((friendCategory) => {
+                {friendCategories.map((friendCategory) => {
                     const categorizedFriends = friendsAvailable.filter((friend) => friend.category === friendCategory)
                     return (
                         <FriendList
@@ -145,10 +188,26 @@ export function MyFriendsPage() {
                                 <SearchableSelect
                                     value={category}
                                     onChange={(nextValue) => setCategory(nextValue as FriendCategory)}
-                                    options={FRIEND_CATEGORIES.map((value) => ({ label: value, value }))}
+                                    options={friendCategories.map((value) => ({ label: value, value }))}
                                     placeholder="选择分类"
                                     searchPlaceholder="选择分类"
                                 />
+                                <div className="mt-2 flex items-center gap-2">
+                                    <Input
+                                        value={newCategory}
+                                        setValue={setNewCategory}
+                                        placeholder="输入新分类名称"
+                                        variant="flat"
+                                        className="min-w-0 flex-1"
+                                    />
+                                    <FlatActionButton
+                                        type="button"
+                                        onClick={addCategory}
+                                        disabled={!newCategory.trim()}
+                                    >
+                                        新增分类
+                                    </FlatActionButton>
+                                </div>
                                 <Input value={name} setValue={setName} placeholder={t('sitename')} variant="flat" />
                                 <Input value={desc} setValue={setDesc} placeholder={t('description')} variant="flat" className="mt-2" />
                                 <Input value={avatar} setValue={setAvatar} placeholder={t('avatar.url')} variant="flat" className="mt-2" />
@@ -191,6 +250,11 @@ function Friend({ friend }: { friend: FriendItem }) {
     const [avatar, setAvatar] = useState(friend.avatar)
     const [name, setName] = useState(friend.name)
     const [category, setCategory] = useState<FriendCategory>(friend.category ?? "未分类")
+    const categoryOptions = [...new Set([
+        ...DEFAULT_FRIEND_CATEGORIES,
+        ...readCustomFriendCategories(),
+        category,
+    ])]
     const [desc, setDesc] = useState(friend.desc || "")
     const [url, setUrl] = useState(friend.url)
     const [status, setStatus] = useState(friend.accepted)
@@ -277,7 +341,7 @@ function Friend({ friend }: { friend: FriendItem }) {
                             <SearchableSelect
                                 value={category}
                                 onChange={(nextValue) => setCategory(nextValue as FriendCategory)}
-                                options={FRIEND_CATEGORIES.map((value) => ({ label: value, value }))}
+                                options={categoryOptions.map((value) => ({ label: value, value }))}
                                 placeholder="选择分类"
                                 searchPlaceholder="选择分类"
                             />
