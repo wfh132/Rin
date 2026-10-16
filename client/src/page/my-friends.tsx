@@ -17,6 +17,7 @@ import { siteName } from "../utils/constants";
 
 type FriendItem = {
     name: string;
+    category?: FriendCategory;
     id: number;
     uid: number;
     avatar: string;
@@ -29,11 +30,19 @@ type FriendItem = {
     sort_order?: number;
 };
 
-async function publish({ name, avatar, desc, url, showAlert }: { name: string, avatar: string, desc: string, url: string, showAlert: ShowAlertType }) {
+const FRIEND_CATEGORIES = ["软件导航", "实用工具", "未分类"] as const;
+type FriendCategory = typeof FRIEND_CATEGORIES[number];
+
+function encodeFriendName(category: FriendCategory, name: string) {
+    const categoryPrefix = category === "未分类" ? "" : `[${category}]`;
+    return `[分组2]${categoryPrefix}${name}`;
+}
+
+async function publish({ name, category, avatar, desc, url, showAlert }: { name: string, category: FriendCategory, avatar: string, desc: string, url: string, showAlert: ShowAlertType }) {
     const t = i18next.t
     const { error } = await client.friend.create({
         avatar,
-        name: `[分组2]${name}`,
+        name: encodeFriendName(category, name),
         desc,
         url
     })
@@ -52,6 +61,7 @@ export function MyFriendsPage() {
     const config = useContext(ClientConfigContext)
     let [apply] = useState<FriendItem>()
     const [name, setName] = useState("")
+    const [category, setCategory] = useState<FriendCategory>("软件导航")
     const [desc, setDesc] = useState("")
     const [avatar, setAvatar] = useState("")
     const [url, setUrl] = useState("")
@@ -69,10 +79,20 @@ export function MyFriendsPage() {
             if (data) {
                 const friend_list = (data.friend_list || [])
                     .filter((item) => item.name.startsWith("[分组2]"))
-                    .map((item) => ({
-                        ...item,
-                        name: item.name.replace(/^\[分组2\]/, ""),
-                    }))
+                    .map((item) => {
+                        const nameWithoutGroup = item.name.replace(/^\[分组2\]/, "")
+                        const category = FRIEND_CATEGORIES.find((friendCategory) =>
+                            nameWithoutGroup.startsWith(`[${friendCategory}]`)
+                        )
+                        const categoryPrefix = category ? `[${category}]` : ""
+                        return {
+                            ...item,
+                            category: category ?? "未分类",
+                            name: categoryPrefix
+                                ? nameWithoutGroup.slice(categoryPrefix.length)
+                                : nameWithoutGroup,
+                        }
+                    })
                 const friends_available = friend_list.filter(({ health, accepted }: any) => health.length === 0 && accepted === 1) || []
                 setFriendsAvailable(friends_available as any)
                 const friends_unavailable = friend_list.filter(({ health, accepted }: any) => health.length > 0 && accepted === 1) || []
@@ -87,7 +107,7 @@ export function MyFriendsPage() {
         ref.current = true
     }, [])
     function publishButton() {
-        publish({ name, desc, avatar, url, showAlert })
+        publish({ name, category, desc, avatar, url, showAlert })
     }
     return (<>
         <Helmet>
@@ -100,7 +120,17 @@ export function MyFriendsPage() {
         </Helmet>
         <Waiting for={friendsAvailable.length !== 0 || friendsUnavailable.length !== 0 || status === "idle"}>
             <main className="w-full flex flex-col justify-center items-center mb-8 t-primary ani-show">
-                <FriendList title="导航" show={friendsAvailable.length > 0} friends={friendsAvailable} />
+                {FRIEND_CATEGORIES.map((friendCategory) => {
+                    const categorizedFriends = friendsAvailable.filter((friend) => friend.category === friendCategory)
+                    return (
+                        <FriendList
+                            key={friendCategory}
+                            title={friendCategory}
+                            show={categorizedFriends.length > 0}
+                            friends={categorizedFriends}
+                        />
+                    )
+                })}
                 <FriendList title={t('friends.left')} show={friendsUnavailable.length > 0} friends={friendsUnavailable} />
                 <FriendList title={t('friends.review.waiting')} show={waitList.length > 0} friends={waitList} />
                 <FriendList title={t('friends.review.rejected')} show={refusedList.length > 0} friends={refusedList} />
@@ -112,6 +142,13 @@ export function MyFriendsPage() {
                                 {profile.permission ? t('friends.create') : t('friends.apply')}
                             </p>
                             <div className="text-sm mt-4 text-neutral-500 font-normal">
+                                <SearchableSelect
+                                    value={category}
+                                    onChange={(nextValue) => setCategory(nextValue as FriendCategory)}
+                                    options={FRIEND_CATEGORIES.map((value) => ({ label: value, value }))}
+                                    placeholder="选择分类"
+                                    searchPlaceholder="选择分类"
+                                />
                                 <Input value={name} setValue={setName} placeholder={t('sitename')} variant="flat" />
                                 <Input value={desc} setValue={setDesc} placeholder={t('description')} variant="flat" className="mt-2" />
                                 <Input value={avatar} setValue={setAvatar} placeholder={t('avatar.url')} variant="flat" className="mt-2" />
@@ -153,6 +190,7 @@ function Friend({ friend }: { friend: FriendItem }) {
     const profile = useContext(ProfileContext)
     const [avatar, setAvatar] = useState(friend.avatar)
     const [name, setName] = useState(friend.name)
+    const [category, setCategory] = useState<FriendCategory>(friend.category ?? "未分类")
     const [desc, setDesc] = useState(friend.desc || "")
     const [url, setUrl] = useState(friend.url)
     const [status, setStatus] = useState(friend.accepted)
@@ -181,7 +219,7 @@ function Friend({ friend }: { friend: FriendItem }) {
     const updateFriend = useCallback(() => {
         client.friend.update(friend.id, {
             avatar,
-            name: `[分组2]${name}`,
+            name: encodeFriendName(category, name),
             desc,
             url,
             accepted: status,
@@ -195,7 +233,7 @@ function Friend({ friend }: { friend: FriendItem }) {
                 })
             }
         })
-    }, [avatar, name, desc, url, status, sortOrder])
+    }, [avatar, name, category, desc, url, status, sortOrder])
 
     const statusOption = [
         { value: -1, label: t('friends.review.rejected') },
@@ -236,6 +274,13 @@ function Friend({ friend }: { friend: FriendItem }) {
                     />
                     {profile?.permission &&
                         <div className="flex flex-col w-full items-start mt-4 px-4">
+                            <SearchableSelect
+                                value={category}
+                                onChange={(nextValue) => setCategory(nextValue as FriendCategory)}
+                                options={FRIEND_CATEGORIES.map((value) => ({ label: value, value }))}
+                                placeholder="选择分类"
+                                searchPlaceholder="选择分类"
+                            />
                             <div className="flex flex-row justify-between w-full items-center">
                                 <div className="flex flex-col">
                                     <p className="text-lg dark:text-white">
