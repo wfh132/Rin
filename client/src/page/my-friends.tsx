@@ -235,6 +235,22 @@ export function MyFriendsPage() {
         )
         void persistFriendOrder(orderedFriends, showAlert)
     }
+    function moveFriendToPosition(friendId: number, position: number) {
+        const friend = friendsAvailable.find((item) => item.id === friendId)
+        if (!friend?.category) return
+
+        const categoryFriends = getSortedCategoryFriends(friend.category)
+        const currentIndex = categoryFriends.findIndex((item) => item.id === friendId)
+        const targetIndex = position - 1
+        if (currentIndex < 0 || targetIndex < 0 || targetIndex >= categoryFriends.length || currentIndex === targetIndex) return
+
+        const [movingFriend] = categoryFriends.splice(currentIndex, 1)
+        categoryFriends.splice(targetIndex, 0, movingFriend)
+        const orderedFriends = visibleFriendCategories.flatMap((friendCategory) =>
+            friendCategory === friend.category ? categoryFriends : getSortedCategoryFriends(friendCategory)
+        )
+        void persistFriendOrder(orderedFriends, showAlert)
+    }
     function addCategory() {
         const nextCategory = newCategory.trim()
         if (!nextCategory) return
@@ -318,6 +334,7 @@ export function MyFriendsPage() {
                             show={categorizedFriends.length > 0}
                             friends={categorizedFriends}
                             onMoveFriend={profile?.permission ? moveFriend : undefined}
+                            onMoveFriendToPosition={profile?.permission ? moveFriendToPosition : undefined}
                             onMoveCategory={profile?.permission ? (direction) => moveCategory(friendCategory, direction) : undefined}
                             canMoveCategoryUp={index > 0}
                             canMoveCategoryDown={index < visibleFriendCategories.length - 1}
@@ -396,6 +413,7 @@ function FriendList({
     show,
     friends,
     onMoveFriend,
+    onMoveFriendToPosition,
     onMoveCategory,
     canMoveCategoryUp,
     canMoveCategoryDown,
@@ -404,6 +422,7 @@ function FriendList({
     show: boolean;
     friends: FriendItem[];
     onMoveFriend?: (friendId: number, direction: MoveDirection) => void;
+    onMoveFriendToPosition?: (friendId: number, position: number) => void;
     onMoveCategory?: (direction: MoveDirection) => void;
     canMoveCategoryUp?: boolean;
     canMoveCategoryDown?: boolean;
@@ -439,12 +458,17 @@ function FriendList({
                     </div>
                 </div>
                 <div className="wauto grid grid-cols-2 sm:grid-cols-3 md:grid-cols-4 gap-4">
-                    {friends.map((friend) => (
+                    {friends.map((friend, index) => (
                         <Friend
                             key={friend.id}
                             friend={friend}
+                            position={index + 1}
+                            friendCount={friends.length}
                             onMoveUp={onMoveFriend ? () => onMoveFriend(friend.id, -1) : undefined}
                             onMoveDown={onMoveFriend ? () => onMoveFriend(friend.id, 1) : undefined}
+                            onMoveToPosition={onMoveFriendToPosition
+                                ? (position) => onMoveFriendToPosition(friend.id, position)
+                                : undefined}
                         />
                     ))}
                 </div>
@@ -455,12 +479,18 @@ function FriendList({
 
 function Friend({
     friend,
+    position,
+    friendCount,
     onMoveUp,
     onMoveDown,
+    onMoveToPosition,
 }: {
     friend: FriendItem;
+    position: number;
+    friendCount: number;
     onMoveUp?: () => void;
     onMoveDown?: () => void;
+    onMoveToPosition?: (position: number) => void;
 }) {
     const { t } = useTranslation()
     const profile = useContext(ProfileContext)
@@ -475,7 +505,6 @@ function Friend({
     const [desc, setDesc] = useState(friend.desc || "")
     const [url, setUrl] = useState(friend.url)
     const [status, setStatus] = useState(friend.accepted)
-    const [sortOrder, setSortOrder] = useState(friend.sort_order || 0)
     const [modalIsOpen, setIsOpen] = useState(false);
     const { showConfirm, ConfirmUI } = useConfirm()
     const { showAlert, AlertUI } = useAlert()
@@ -509,8 +538,7 @@ function Friend({
             name: encodeFriendName(name),
             desc: encodedDescription,
             url,
-            accepted: status,
-            sort_order: sortOrder
+            accepted: status
         }).then(({ error }) => {
             if (error) {
                 showAlert(error.value as string)
@@ -520,7 +548,7 @@ function Friend({
                 })
             }
         })
-    }, [avatar, name, category, desc, url, status, sortOrder])
+    }, [avatar, name, category, desc, url, status])
 
     const statusOption = [
         { value: -1, label: t('friends.review.rejected') },
@@ -617,16 +645,21 @@ function Friend({
                             </div>
                             <div className="flex flex-row justify-between w-full items-center mt-2">
                                 <div className="flex flex-col">
-                                    <p className="text-lg dark:text-white">
-                                        {t('sort_order')}
-                                    </p>
+                                    <p className="text-lg dark:text-white">分类内位置</p>
                                 </div>
                                 <div className="flex flex-row items-center justify-center space-x-4">
-                                    <Input
-                                        value={sortOrder.toString()} 
-                                        setValue={(val) => setSortOrder(parseInt(val) || 0)} 
-                                        placeholder={t('sort_order')}
-                                        variant="flat"
+                                    <SearchableSelect
+                                        value={String(position)}
+                                        onChange={(nextValue) => {
+                                            const nextPosition = Number(nextValue)
+                                            if (!Number.isNaN(nextPosition)) onMoveToPosition?.(nextPosition)
+                                        }}
+                                        options={Array.from({ length: friendCount }, (_, index) => ({
+                                            label: `第 ${index + 1} 位`,
+                                            value: String(index + 1),
+                                        }))}
+                                        placeholder="选择位置"
+                                        searchPlaceholder="选择位置"
                                     />
                                 </div>
                             </div>
