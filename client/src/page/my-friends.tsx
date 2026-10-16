@@ -91,16 +91,16 @@ export function MyFriendsPage() {
     }
     return (<>
         <Helmet>
-            <title>{`${t('friends.title')} - ${siteConfig.name}`}</title>
+            <title>{`导航 - ${siteConfig.name}`}</title>
             <meta property="og:site_name" content={siteName} />
-            <meta property="og:title" content={t('friends.title')} />
+            <meta property="og:title" content="导航" />
             <meta property="og:image" content={siteConfig.avatar} />
             <meta property="og:type" content="article" />
             <meta property="og:url" content={document.URL} />
         </Helmet>
         <Waiting for={friendsAvailable.length !== 0 || friendsUnavailable.length !== 0 || status === "idle"}>
             <main className="w-full flex flex-col justify-center items-center mb-8 t-primary ani-show">
-                <FriendList title={t('friends.title')} show={friendsAvailable.length > 0} friends={friendsAvailable} />
+                <FriendList title="导航" show={friendsAvailable.length > 0} friends={friendsAvailable} />
                 <FriendList title={t('friends.left')} show={friendsUnavailable.length > 0} friends={friendsUnavailable} />
                 <FriendList title={t('friends.review.waiting')} show={waitList.length > 0} friends={waitList} />
                 <FriendList title={t('friends.review.rejected')} show={refusedList.length > 0} friends={refusedList} />
