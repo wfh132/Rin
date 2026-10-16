@@ -77,7 +77,7 @@ export function MyFriendsPage() {
     const config = useContext(ClientConfigContext)
     let [apply] = useState<FriendItem>()
     const [name, setName] = useState("")
-    const [category, setCategory] = useState<FriendCategory>("软件导航")
+    const [category, setCategory] = useState<FriendCategory>("")
     const [customCategories, setCustomCategories] = useState<string[]>(readCustomFriendCategories)
     const [newCategory, setNewCategory] = useState("")
     const [desc, setDesc] = useState("")
@@ -85,12 +85,14 @@ export function MyFriendsPage() {
     const [url, setUrl] = useState("")
     const profile = useContext(ProfileContext);
     const [friendsAvailable, setFriendsAvailable] = useState<FriendItem[]>([])
+    const [allFriends, setAllFriends] = useState<FriendItem[]>([])
     const [waitList, setWaitList] = useState<FriendItem[]>([])
     const [refusedList, setRefusedList] = useState<FriendItem[]>([])
     const [friendsUnavailable, setFriendsUnavailable] = useState<FriendItem[]>([])
     const [status, setStatus] = useState<'idle' | 'loading'>('loading')
     const ref = useRef(false)
     const { showAlert, AlertUI } = useAlert()
+    const { showConfirm, ConfirmUI } = useConfirm()
     useEffect(() => {
         if (ref.current) return
         client.friend.list().then(({ data }) => {
@@ -116,6 +118,7 @@ export function MyFriendsPage() {
                                 : nameWithoutGroup,
                         }
                     })
+                    setAllFriends(friend_list as FriendItem[])
                 const friends_available = friend_list.filter(({ health, accepted }: any) => health.length === 0 && accepted === 1) || []
                 setFriendsAvailable(friends_available as any)
                 const friends_unavailable = friend_list.filter(({ health, accepted }: any) => health.length > 0 && accepted === 1) || []
@@ -149,7 +152,52 @@ export function MyFriendsPage() {
         setCategory(nextCategory)
         setNewCategory("")
     }
+    function deleteCategory(categoryToDelete: string) {
+        const removeCategory = () => {
+            const nextCategories = customCategories.filter((value) => value !== categoryToDelete)
+            setCustomCategories(nextCategories)
+            try {
+                localStorage.setItem(CUSTOM_FRIEND_CATEGORIES_KEY, JSON.stringify(nextCategories))
+            } catch {}
+            if (category === categoryToDelete) setCategory("")
+        }
+        const categorizedFriends = allFriends.filter((friend) => friend.category === categoryToDelete)
+
+        if (categorizedFriends.length === 0) {
+            removeCategory()
+            return
+        }
+
+        showConfirm(
+            "删除分类",
+            `分类“${categoryToDelete}”中有 ${categorizedFriends.length} 个友链，删除后会移到“未分类”。`,
+            async () => {
+                const results = await Promise.all(categorizedFriends.map((friend) =>
+                    client.friend.update(friend.id, {
+                        avatar: friend.avatar,
+                        name: encodeFriendName("未分类", friend.name),
+                        desc: friend.desc ?? "",
+                        url: friend.url,
+                        accepted: friend.accepted,
+                        sort_order: friend.sort_order ?? 0,
+                    })
+                ))
+                const failedUpdate = results.find((result) => result.error)
+                if (failedUpdate?.error) {
+                    showAlert(failedUpdate.error.value as string)
+                    return
+                }
+
+                removeCategory()
+                window.location.reload()
+            }
+        )
+    }
     function publishButton() {
+        if (!category) {
+            showAlert("请先选择分类")
+            return
+        }
         publish({ name, category, desc, avatar, url, showAlert })
     }
     return (<>
@@ -189,31 +237,46 @@ export function MyFriendsPage() {
                                     value={category}
                                     onChange={(nextValue) => setCategory(nextValue as FriendCategory)}
                                     options={friendCategories.map((value) => ({ label: value, value }))}
-                                    placeholder="选择分类"
-                                    searchPlaceholder="选择分类"
+                                    placeholder="请选择分类"
+                                    searchPlaceholder="请选择分类"
                                 />
-                                <div className="mt-2 flex items-center gap-2">
-                                    <Input
-                                        value={newCategory}
-                                        setValue={setNewCategory}
-                                        placeholder="输入新分类名称"
-                                        variant="flat"
-                                        className="min-w-0 flex-1"
-                                    />
-                                    <FlatActionButton
-                                        type="button"
-                                        onClick={addCategory}
-                                        disabled={!newCategory.trim()}
-                                    >
-                                        新增分类
-                                    </FlatActionButton>
-                                </div>
+                                {profile.permission && <>
+                                    <div className="mt-2 flex items-center gap-2">
+                                        <Input
+                                            value={newCategory}
+                                            setValue={setNewCategory}
+                                            placeholder="输入新分类名称"
+                                            variant="flat"
+                                            className="min-w-0 flex-1"
+                                        />
+                                        <FlatActionButton
+                                            type="button"
+                                            onClick={addCategory}
+                                            disabled={!newCategory.trim()}
+                                        >
+                                            新增分类
+                                        </FlatActionButton>
+                                    </div>
+                                    {customCategories.map((customCategory) => (
+                                        <div key={customCategory} className="mt-2 flex items-center justify-between gap-3">
+                                            <span className="truncate text-sm">{customCategory}</span>
+                                            <FlatActionButton
+                                                type="button"
+                                                onClick={() => deleteCategory(customCategory)}
+                                                className="shrink-0 text-theme"
+                                            >
+                                                <i className="ri-delete-bin-line mr-1" aria-hidden="true" />
+                                                删除分类
+                                            </FlatActionButton>
+                                        </div>
+                                    ))}
+                                </>}
                                 <Input value={name} setValue={setName} placeholder={t('sitename')} variant="flat" />
                                 <Input value={desc} setValue={setDesc} placeholder={t('description')} variant="flat" className="mt-2" />
                                 <Input value={avatar} setValue={setAvatar} placeholder={t('avatar.url')} variant="flat" className="mt-2" />
                                 <Input value={url} setValue={setUrl} placeholder={t('url')} variant="flat" className="my-2" />
                                 <div className='flex flex-row justify-center'>
-                                    <button onClick={publishButton} className='basis-1/2 rounded-full bg-theme py-4 text-white'>{t('create.title')}</button>
+                                    <button onClick={publishButton} disabled={!category} className='basis-1/2 rounded-full bg-theme py-4 text-white disabled:opacity-50'>{t('create.title')}</button>
                                 </div>
                             </div>
                         </FlatPanel>
@@ -221,6 +284,7 @@ export function MyFriendsPage() {
                 }
             </main>
         </Waiting>
+        <ConfirmUI />
         <AlertUI />
     </>)
 }
