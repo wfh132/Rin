@@ -20,6 +20,7 @@ import { HealthPage } from "../page/health";
 import { HashtagPage } from "../page/hashtag";
 import { HashtagsPage } from "../page/hashtags";
 import { LoginPage } from "../page/login";
+import { MyFriendsPage } from "../page/my-friends";
 import { MomentsPage } from "../page/moments";
 import { ProfilePage } from "../page/profile";
 import { QueueStatusPage } from "../page/queue-status";
@@ -50,6 +51,10 @@ export function AppRoutes() {
 
       <AppRoute path="/friends">
         <FriendsPage />
+      </AppRoute>
+
+      <AppRoute path="/my-friends">
+        <MyFriendsPage />
       </AppRoute>
 
       <AppRoute path="/hashtags">

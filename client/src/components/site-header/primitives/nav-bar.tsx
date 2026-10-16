@@ -20,6 +20,15 @@ export function NavBar({
       <NavItem menu={menu} onClick={onClick} itemClassName={itemClassName} title={t("moments.title")} selected={location === "/moments"} href="/moments" />
       <NavItem menu={menu} onClick={onClick} itemClassName={itemClassName} title={t("hashtags")} selected={location === "/hashtags"} href="/hashtags" />
       <NavItem menu={menu} onClick={onClick} itemClassName={itemClassName} title={t("friends.title")} selected={location === "/friends"} href="/friends" />
+      <NavItem
+        menu={menu}
+        onClick={onClick}
+        title="我的朋友"
+        selected={location === "/my-friends"}
+        href="/my-friends"
+        when={true}
+        icon="ri-user-smile-line"
+      />
       <NavItem menu={menu} onClick={onClick} itemClassName={itemClassName} title={t("about.title")} selected={location === "/about"} href="/about" />
     </>
   );
@@ -31,12 +40,14 @@ function NavItem({
   selected,
   href,
   when = true,
+  icon,
   onClick,
   itemClassName = "",
 }: {
   title: string;
   selected: boolean;
   href: string;
+  icon?: string;
   menu?: boolean;
   when?: boolean;
   onClick?: () => void;
@@ -51,6 +62,7 @@ function NavItem({
       state={{ animate: true }}
       onClick={onClick}
     >
+      {icon ? <i className={`${icon} mr-1`} aria-hidden="true" /> : null}
       {title}
     </Link>
   ) : null;
