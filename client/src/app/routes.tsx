@@ -38,7 +38,7 @@ export function AppRoutes() {
   return (
     <Switch>
       <AppRoute path="/">
-        <MyFriendsPage />
+        <FeedsPage />
       </AppRoute>
 
       <AppRoute path="/articles">

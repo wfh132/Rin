@@ -15,16 +15,16 @@ export function NavBar({
 
   return (
     <>
+      <NavItem menu={menu} onClick={onClick} itemClassName={itemClassName} title={t("article.title")} selected={location === "/" || location === "/articles" || location.startsWith("/feed")} href="/" />
       <NavItem
         menu={menu}
         onClick={onClick}
         title="导航"
-        selected={location === "/" || location === "/my-friends"}
+        selected={location === "/my-friends"}
         href="/my-friends"
         when={true}
         icon="ri-user-smile-line"
       />
-      <NavItem menu={menu} onClick={onClick} itemClassName={itemClassName} title={t("article.title")} selected={location === "/articles" || location.startsWith("/feed")} href="/articles" />
       <NavItem menu={menu} onClick={onClick} itemClassName={itemClassName} title={t("timeline")} selected={location === "/timeline"} href="/timeline" />
       <NavItem menu={menu} onClick={onClick} itemClassName={itemClassName} title={t("moments.title")} selected={location === "/moments"} href="/moments" />
       <NavItem menu={menu} onClick={onClick} itemClassName={itemClassName} title={t("hashtags")} selected={location === "/hashtags"} href="/hashtags" />
