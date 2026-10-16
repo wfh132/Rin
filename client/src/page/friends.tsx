@@ -67,7 +67,9 @@ export function FriendsPage() {
         if (ref.current) return
         client.friend.list().then(({ data }) => {
             if (data) {
-                const friend_list = data.friend_list || []
+                const friend_list = (data.friend_list || []).filter(
+                    (item) => !item.name.startsWith("[分组2]")
+                )
                 const friends_available = friend_list.filter(({ health, accepted }: any) => health.length === 0 && accepted === 1) || []
                 setFriendsAvailable(friends_available as any)
                 const friends_unavailable = friend_list.filter(({ health, accepted }: any) => health.length > 0 && accepted === 1) || []

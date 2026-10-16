@@ -68,8 +68,8 @@ export function MyFriendsPage() {
         client.friend.list().then(({ data }) => {
             if (data) {
                 const friend_list = (data.friend_list || [])
-                    .filter((item: FriendItem) => item.name.startsWith("[分组2]"))
-                    .map((item: FriendItem) => ({
+                    .filter((item) => item.name.startsWith("[分组2]"))
+                    .map((item) => ({
                         ...item,
                         name: item.name.replace(/^\[分组2\]/, ""),
                     }))
