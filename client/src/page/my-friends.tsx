@@ -30,7 +30,7 @@ type FriendItem = {
     sort_order?: number | null;
 };
 
-const DEFAULT_FRIEND_CATEGORIES = ["软件导航", "实用工具", "未分类"] as const;
+const DEFAULT_FRIEND_CATEGORIES = ["未分类"] as const;
 const CUSTOM_FRIEND_CATEGORIES_KEY = "rin.my-friends.categories";
 type FriendCategory = string;
 type MoveDirection = -1 | 1;
